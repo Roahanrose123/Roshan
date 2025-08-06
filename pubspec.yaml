@@ -1,0 +1,34 @@
+name: todo_app
+description: "A Flutter todo application for desktop platforms."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.3.0
+  intl: ^0.20.2
+  shared_preferences: ^2.2.2
+  connectivity_plus: ^6.0.5
+  firebase_core: ^3.10.0
+  firebase_auth: ^5.3.6
+  google_sign_in: ^6.2.1
+  aad_oauth: ^1.0.1
+  url_launcher: ^6.3.1
+  http: ^1.2.2
+  crypto: ^3.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
