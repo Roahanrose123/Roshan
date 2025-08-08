@@ -1,17 +1,14 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
-import 'package:aad_oauth/aad_oauth.dart';
-import 'package:aad_oauth/model/config.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
+import 'env_config.dart';
 
 class AuthUser {
   final String id;
@@ -181,21 +178,30 @@ class AuthService {
     try {
       if (kDebugMode) print('🔐 Starting Google Desktop OAuth...');
       
-      // Use your correct client ID for desktop
-      const String clientId = '804059036502-ccsjaad5i8hf83m4igugtsc8qogmqtkc.apps.googleusercontent.com';
-      const String redirectUri = 'http://localhost:8085/auth/callback';
-      const String scope = 'openid email profile';
+      // Use your desktop application client ID from environment
+      final String clientId = EnvConfig.googleClientIdDesktop.isNotEmpty 
+          ? EnvConfig.googleClientIdDesktop 
+          : 'YOUR_GOOGLE_CLIENT_ID_DESKTOP'; // fallback - replace with actual value
+      const String redirectUri = 'http://localhost:8081/auth/callback';
+      const String scope = 'https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile openid';
       
-      // Build authorization URL
-      final String authUrl = 'https://accounts.google.com/o/oauth2/v2/auth'
-          '?client_id=$clientId'
-          '&redirect_uri=${Uri.encodeComponent(redirectUri)}'
-          '&scope=${Uri.encodeComponent(scope)}'
-          '&response_type=code'
-          '&access_type=offline'
-          '&prompt=consent';
+      // Build authorization URL with proper formatting
+      final Map<String, String> queryParams = {
+        'client_id': clientId,
+        'redirect_uri': redirectUri,
+        'scope': scope,
+        'response_type': 'code',
+        'access_type': 'offline',
+        'prompt': 'consent',
+        'state': 'desktop_oauth_${DateTime.now().millisecondsSinceEpoch}',
+      };
+      
+      final String authUrl = Uri.https('accounts.google.com', '/o/oauth2/v2/auth', queryParams).toString();
 
-      if (kDebugMode) print('🌐 Opening browser for Google OAuth...');
+      if (kDebugMode) {
+        print('🌐 Opening browser for Google OAuth...');
+        print('🔗 Auth URL: $authUrl');
+      }
       
       // Launch browser
       if (await canLaunchUrl(Uri.parse(authUrl))) {
@@ -222,7 +228,9 @@ class AuthService {
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: {
           'client_id': clientId,
-          'client_secret': 'YOUR_GOOGLE_CLIENT_SECRET',
+          'client_secret': EnvConfig.googleClientSecret.isNotEmpty 
+              ? EnvConfig.googleClientSecret 
+              : 'YOUR_GOOGLE_CLIENT_SECRET', // fallback - replace with actual value
           'code': authCode,
           'grant_type': 'authorization_code',
           'redirect_uri': redirectUri,
@@ -260,7 +268,22 @@ class AuthService {
       return _currentUser;
 
     } catch (e) {
-      if (kDebugMode) print('❌ Google Desktop OAuth error: $e');
+      if (kDebugMode) {
+        print('❌ Google Desktop OAuth error: $e');
+        if (e.toString().contains('XMLHttpRequest error')) {
+          print('💡 Tip: This might be a CORS issue. Make sure redirect URI is configured in Google Cloud Console.');
+        }
+      }
+      
+      // Provide user-friendly error messages
+      if (e.toString().contains('invalid_request')) {
+        throw Exception('OAuth configuration error. Please check Google Cloud Console settings.');
+      } else if (e.toString().contains('access_denied')) {
+        throw Exception('Access denied. Please try again and grant permissions.');
+      } else if (e.toString().contains('Network')) {
+        throw Exception('Network error. Please check your internet connection.');
+      }
+      
       rethrow;
     }
   }
@@ -270,12 +293,14 @@ class AuthService {
     try {
       if (kDebugMode) print('🔐 Starting Microsoft Desktop OAuth with PKCE...');
       
-      // Microsoft OAuth configuration
-      const String clientId = 'ed3a13e3-7832-43eb-add8-b0d9aed19bfd';
+      // Microsoft OAuth configuration from environment
+      final String clientId = EnvConfig.microsoftClientId.isNotEmpty 
+          ? EnvConfig.microsoftClientId 
+          : 'YOUR_MICROSOFT_CLIENT_ID'; // fallback - replace with actual value
       const String redirectUri = 'http://localhost:8086/auth/callback';
       const String scope = 'openid profile email User.Read';
       
-      // Generate PKCE parameters for Microsoft
+      // Generate PKCE parameters for Microsoft (keeping PKCE for extra security)
       final codeVerifier = _generateCodeVerifier();
       final codeChallenge = _generateCodeChallenge(codeVerifier);
       
@@ -363,18 +388,32 @@ class AuthService {
     }
   }
 
-  // Mobile OAuth - Simplified without Firebase dependency
+  // Mobile OAuth - Enhanced with better error handling
   Future<AuthUser?> signInWithGoogleMobile() async {
     try {
       if (kDebugMode) print('📱 Starting Mobile Google Sign-In...');
       
-      // Use simple GoogleSignIn without custom client ID
+      // Use GoogleSignIn with proper configuration
       final GoogleSignIn googleSignIn = GoogleSignIn(
-        scopes: ['email', 'profile'],
+        scopes: [
+          'email',
+          'profile',
+          'https://www.googleapis.com/auth/userinfo.email',
+          'https://www.googleapis.com/auth/userinfo.profile',
+        ],
+        // Add client ID for better compatibility from environment
+        clientId: kIsWeb ? null : (EnvConfig.googleClientIdMobile.isNotEmpty 
+            ? EnvConfig.googleClientIdMobile 
+            : 'YOUR_GOOGLE_CLIENT_ID_MOBILE'), // fallback - replace with actual value
       );
       
       // Clear any previous sign-in state
-      await googleSignIn.signOut();
+      try {
+        await googleSignIn.signOut();
+        if (kDebugMode) print('🧹 Cleared previous sign-in state');
+      } catch (e) {
+        if (kDebugMode) print('⚠️  Could not clear previous state: $e');
+      }
       
       if (kDebugMode) print('🔐 Attempting Google sign-in...');
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
@@ -545,13 +584,22 @@ class AuthService {
     final completer = Completer<String?>();
     
     try {
-      final server = await HttpServer.bind('localhost', 8085);
-      if (kDebugMode) print('🌐 Local callback server started on http://localhost:8085');
+      final server = await HttpServer.bind('localhost', 8081);
+      if (kDebugMode) print('🌐 Local callback server started on http://localhost:8081');
       
       server.listen((request) async {
         if (request.uri.path == '/auth/callback') {
           final code = request.uri.queryParameters['code'];
           final error = request.uri.queryParameters['error'];
+          final errorDescription = request.uri.queryParameters['error_description'];
+          
+          if (kDebugMode) {
+            print('🔍 Google OAuth callback received:');
+            print('  - Code: ${code != null ? "✅ Present" : "❌ Missing"}');
+            print('  - Error: ${error ?? "None"}');
+            print('  - Description: ${errorDescription ?? "None"}');
+            print('  - Full query: ${request.uri.query}');
+          }
           
           // Send response to browser
           request.response

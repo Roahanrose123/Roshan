@@ -10,11 +10,21 @@ import 'todo_item.dart';
 import 'config.dart';
 import 'firebase_options.dart';
 import 'google_auth_service.dart';
+import 'env_config.dart';
 
 void main() async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
     print('✅ Flutter binding initialized');
+    
+    // Initialize environment configuration
+    try {
+      await EnvConfig.initialize();
+      print('✅ Environment configuration loaded');
+    } catch (envError) {
+      print('⚠️ Warning: Environment configuration failed to load: $envError');
+      print('📋 Continuing with fallback values...');
+    }
     
     // Initialize Firebase only on supported platforms
     if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.linux ||
@@ -488,6 +498,30 @@ class _GoogleLoginScreenState extends State<GoogleLoginScreen> {
                   
                   const SizedBox(height: 16),
                   
+                  // Mobile test mode button (for testing mobile auth without emulator)
+                  if (!isDesktop)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: OutlinedButton.icon(
+                        onPressed: _testMobileAuth,
+                        icon: const Icon(Icons.phone_android, size: 24),
+                        label: Text(
+                          'Test Mobile Google Auth',
+                          style: GoogleFonts.lato(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Colors.blue[400]!, width: 2),
+                          foregroundColor: Colors.blue[700],
+                        ),
+                      ),
+                    ),
+                  
+                  const SizedBox(height: 16),
+                  
                   // Microsoft Sign In Button
                   SizedBox(
                     width: double.infinity,
@@ -617,6 +651,30 @@ class _GoogleLoginScreenState extends State<GoogleLoginScreen> {
       if (mounted) {
         _showErrorMessage('Demo mode failed: $e');
       }
+    }
+  }
+
+  Future<void> _testMobileAuth() async {
+    setState(() => _isLoadingGoogle = true);
+    try {
+      if (kDebugMode) print('🧪 Testing mobile Google authentication...');
+      
+      // Test mobile authentication directly
+      final user = await _authService.signInWithGoogleMobile();
+      if (user != null && kDebugMode) {
+        print('✅ Mobile Google sign-in test successful: ${user.email}');
+      }
+    } catch (e) {
+      if (mounted) {
+        String errorMessage = e.toString();
+        if (errorMessage.contains('Google Sign-In setup required')) {
+          _showInfoMessage('Mobile authentication would work on a real device with proper setup. Error: ${errorMessage.replaceAll('Exception: ', '')}');
+        } else {
+          _showErrorMessage('Mobile auth test failed: $errorMessage');
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingGoogle = false);
     }
   }
 
